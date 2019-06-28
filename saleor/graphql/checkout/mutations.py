@@ -29,7 +29,7 @@ from ...core.utils.taxes import get_taxes_for_address
 from ...discount import models as voucher_model
 from ...payment import PaymentError
 from ...payment.interface import AddressData
-from ...payment.utils import gateway_process_payment
+from ...payment.utils import gateway_process_payment, store_id_for_payment_gateway
 from ...shipping.models import ShippingMethod as ShippingMethodModel
 from ..account.i18n import I18nMixin
 from ..account.types import AddressInput, User
@@ -520,13 +520,19 @@ class CheckoutComplete(BaseMutation):
         try:
             billing_address = order_data["billing_address"]  # type: models.Address
             shipping_address = order_data["shipping_address"]  # type: models.Address
-            gateway_process_payment(
+            trs = gateway_process_payment(
                 payment=payment,
                 payment_token=payment.token,
                 billing_address=AddressData(**billing_address.as_data()),
                 shipping_address=AddressData(**shipping_address.as_data()),
                 store_source=store_source,
             )
+            if trs.is_success and trs.customer_id:
+                user = info.context.user
+                if user:
+                    gateway = payment.gateway
+                    store_id_for_payment_gateway(user, gateway, trs.customer_id)
+
         except PaymentError as e:
             abort_order_data(order_data)
             raise ValidationError(str(e))
